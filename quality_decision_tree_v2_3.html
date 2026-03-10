@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quality Complaint — Bot Decision Tree</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#f7f6f3;--surface:#fff;--border:#e0ddd6;--text:#18181a;--muted:#72706a;
+    --rfg:#eaf4ee;--rfb:#a8d4b8;--rft:#1d6648;
+    --exg:#fdf6e3;--exb:#e0c97a;--ext:#7a5c10;
+    --esg:#fdecea;--esb:#e8aaaa;--est:#8b2424;
+    --qg:#eef3fb;--qb:#b8cce8;--qt:#1e3d6f;
+    --phg:#f3eeff;--phb:#c8b0f0;--pht:#4a2a90;
+    --bot-bubble:#18181a; --user-bubble:#1d6648;
+  }
+  body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;}
+
+  /* ── HEADER ── */
+  header{background:#18181a;color:#fff;padding:14px 32px;display:flex;align-items:center;gap:20px;flex-shrink:0;}
+  .h-title{font-size:15px;font-weight:500}
+  .h-sub{font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px;font-family:'IBM Plex Mono',monospace}
+  .legend{margin-left:auto;display:flex;gap:14px;align-items:center}
+  .leg{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,0.6)}
+  .leg-dot{width:8px;height:8px;border-radius:50%}
+
+  /* ── LAYOUT ── */
+  .layout{display:grid;grid-template-columns:220px 1fr;flex:1;min-height:0;}
+  .sidebar{background:var(--surface);border-right:1px solid var(--border);padding:16px 0;overflow-y:auto;}
+  .sb-lbl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:0 16px 8px}
+  .cat-btn{display:flex;align-items:center;gap:9px;width:100%;padding:9px 16px;border:none;background:none;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:var(--muted);text-align:left;border-left:3px solid transparent;transition:all .1s}
+  .cat-btn:hover{background:var(--bg);color:var(--text)}
+  .cat-btn.active{background:var(--rfg);color:var(--rft);border-left-color:var(--rft);font-weight:500}
+
+  /* ── MAIN AREA ── */
+  .main-wrap{display:flex;flex-direction:column;overflow:hidden;}
+  #main{padding:28px 44px;overflow-y:auto;flex:1;}
+
+  /* ── MODE TOGGLE BAR ── */
+  .toggle-bar{
+    border-top:1px solid var(--border);background:var(--surface);
+    padding:12px 44px;display:flex;align-items:center;gap:12px;flex-shrink:0;
+  }
+  .toggle-label{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.08em;}
+  .toggle-track{
+    position:relative;width:52px;height:28px;background:#d0cdc8;border-radius:14px;
+    cursor:pointer;transition:background .2s;border:none;padding:0;flex-shrink:0;
+  }
+  .toggle-track.on{background:var(--bot-bubble)}
+  .toggle-thumb{
+    position:absolute;top:3px;left:3px;width:22px;height:22px;background:#fff;
+    border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);
+  }
+  .toggle-track.on .toggle-thumb{transform:translateX(24px)}
+  .toggle-modes{display:flex;gap:6px;align-items:center;}
+  .toggle-mode-lbl{font-size:12.5px;color:var(--muted);transition:color .15s;}
+  .toggle-mode-lbl.active{color:var(--text);font-weight:500;}
+  .toggle-sep{color:var(--border);font-size:14px;}
+
+  /* ─────────────────────────────────────────────
+     TREE VIEW STYLES
+  ───────────────────────────────────────────── */
+  .flow{display:flex;flex-direction:column;align-items:flex-start;max-width:660px}
+  .vline{width:2px;height:18px;background:var(--border);margin-left:18px;flex-shrink:0}
+  .nd{width:100%;border-radius:9px;padding:13px 16px;border:1.5px solid}
+  .nd.entry{background:#18181a;border-color:#18181a}
+  .nd.entry .nd-lbl{color:rgba(255,255,255,0.38)}
+  .nd.entry .nd-title{color:#fff}
+  .nd.q{background:var(--qg);border-color:var(--qb)}
+  .nd.q .nd-lbl{color:#6888b0}
+  .nd.q .nd-title{color:var(--qt)}
+  .nd.photo{background:var(--phg);border-color:var(--phb)}
+  .nd.photo .nd-lbl{color:#8860b8}
+  .nd.photo .nd-title{color:var(--pht)}
+  .nd-lbl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px}
+  .nd-title{font-size:13.5px;font-weight:500;line-height:1.4}
+  .nd-sub{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.5}
+  .multi-hint{font-size:10.5px;color:#6888b0;font-style:italic;margin-top:2px;margin-bottom:2px}
+  .pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .pill{padding:5px 12px;border-radius:20px;border:1.5px solid var(--qb);background:#fff;font-size:12px;color:var(--qt);cursor:pointer;font-family:'IBM Plex Sans',sans-serif;transition:all .12s;user-select:none;line-height:1.3}
+  .pill:hover{background:var(--qg)}
+  .pill.sel-green{background:var(--rfg);border-color:var(--rfb);color:var(--rft);font-weight:500}
+  .pill.sel-amber{background:var(--exg);border-color:var(--exb);color:var(--ext);font-weight:500}
+  .pill.sel-red{background:var(--esg);border-color:var(--esb);color:var(--est);font-weight:500}
+  .pill.sel-blue{background:#e8eeff;border-color:#9aaae0;color:#2a3a90;font-weight:500}
+  .pill.sel-neutral{background:#f0f0ee;border-color:#b8b5ae;color:#3a3830;font-weight:500}
+  .pill.multi-sel{background:var(--qt);border-color:var(--qt);color:#fff;font-weight:500}
+  .pill.multi-sel.critical{background:var(--est);border-color:var(--est);color:#fff}
+  .outcome-wrap{width:100%}
+  .outcome-panel{width:100%;border-radius:9px;padding:14px 17px;border:1.5px solid;animation:fadeUp .18s ease}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+  .outcome-panel.refund{background:var(--rfg);border-color:var(--rfb)}
+  .outcome-panel.exception{background:var(--exg);border-color:var(--exb)}
+  .outcome-panel.escalate{background:var(--esg);border-color:var(--esb)}
+  .outcome-panel.info{background:#eef0fb;border-color:#b0bae8}
+  .op-tag{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+  .outcome-panel.refund .op-tag{color:var(--rft)}
+  .outcome-panel.exception .op-tag{color:var(--ext)}
+  .outcome-panel.escalate .op-tag{color:var(--est)}
+  .outcome-panel.info .op-tag{color:#2a3a90}
+  .op-title{font-size:14px;font-weight:600;line-height:1.3}
+  .outcome-panel.refund .op-title{color:var(--rft)}
+  .outcome-panel.exception .op-title{color:var(--ext)}
+  .outcome-panel.escalate .op-title{color:var(--est)}
+  .outcome-panel.info .op-title{color:#2a3a90}
+  .op-sub{font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.5}
+  .op-action{margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11.5px;font-style:italic;line-height:1.45}
+  .outcome-panel.refund .op-action{background:rgba(29,102,72,.08);color:var(--rft)}
+  .outcome-panel.exception .op-action{background:rgba(122,92,16,.08);color:var(--ext)}
+  .outcome-panel.escalate .op-action{background:rgba(139,36,36,.08);color:var(--est)}
+  .outcome-panel.info .op-action{background:rgba(42,58,144,.08);color:#2a3a90}
+  .placeholder{width:100%;border-radius:9px;padding:14px 17px;border:1.5px dashed var(--border);font-size:12px;color:var(--muted);text-align:center}
+  .tree-note{padding:9px 13px;background:#fffcec;border:1px solid #e8d870;border-radius:7px;font-size:11.5px;color:#6b5808;line-height:1.5;width:100%;margin-bottom:14px}
+  .cat-hdr{margin-bottom:26px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+  .cat-hdr h2{font-size:18px;font-weight:500}
+  .cat-hdr p{font-size:12px;color:var(--muted);margin-top:3px}
+  .divlbl{display:flex;align-items:center;gap:8px;width:100%;margin:3px 0}
+  .divlbl span{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
+  .divlbl::before,.divlbl::after{content:'';flex:1;height:1px;background:var(--border)}
+
+  /* ─────────────────────────────────────────────
+     CHAT VIEW STYLES
+  ───────────────────────────────────────────── */
+  #chat-view{display:none;flex-direction:column;height:100%;max-width:600px;margin:0 auto;padding:0 0 8px 0;}
+  #chat-view.active{display:flex;}
+  #tree-view{display:block;}
+  #tree-view.hidden{display:none;}
+
+  .chat-header{padding:16px 0 12px;border-bottom:1px solid var(--border);margin-bottom:0;flex-shrink:0;}
+  .chat-header-inner{display:flex;align-items:center;gap:10px;}
+  .chat-avatar{width:34px;height:34px;background:#18181a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+  .chat-agent-name{font-size:13px;font-weight:500;}
+  .chat-agent-sub{font-size:11px;color:var(--muted);}
+  .chat-restart{margin-left:auto;padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-size:11.5px;color:var(--muted);font-family:'IBM Plex Sans',sans-serif;transition:all .1s;}
+  .chat-restart:hover{background:var(--bg);color:var(--text);}
+
+  .chat-messages{flex:1;overflow-y:auto;padding:16px 0;display:flex;flex-direction:column;gap:12px;}
+
+  /* bot bubble */
+  .msg-bot{display:flex;align-items:flex-end;gap:8px;}
+  .msg-bot-avatar{width:26px;height:26px;background:#18181a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;margin-bottom:2px;}
+  .msg-bot-bubble{background:#fff;border:1px solid var(--border);border-radius:16px 16px 16px 4px;padding:10px 14px;font-size:13px;line-height:1.5;color:var(--text);max-width:82%;box-shadow:0 1px 2px rgba(0,0,0,0.05);}
+
+  /* user bubble */
+  .msg-user{display:flex;justify-content:flex-end;}
+  .msg-user-bubble{background:var(--user-bubble);border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:13px;line-height:1.5;color:#fff;max-width:82%;}
+  .msg-user-bubble.multi{font-size:12.5px;}
+
+  /* quick replies */
+  .quick-replies{display:flex;flex-wrap:wrap;gap:7px;padding:4px 0 4px 34px;}
+  .qr-btn{
+    padding:7px 14px;border-radius:20px;border:1.5px solid var(--qb);background:#fff;
+    font-size:12.5px;color:var(--qt);cursor:pointer;font-family:'IBM Plex Sans',sans-serif;
+    transition:all .12s;line-height:1.3;
+  }
+  .qr-btn:hover{background:var(--qg);}
+  .qr-btn.selected{background:var(--qt);border-color:var(--qt);color:#fff;}
+  .qr-btn.selected.critical{background:var(--est);border-color:var(--est);}
+
+  /* multi-select confirm */
+  .multi-confirm{padding:6px 0 2px 34px;}
+  .multi-confirm-btn{
+    padding:7px 18px;border-radius:8px;background:#18181a;color:#fff;border:none;
+    font-size:12.5px;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;transition:opacity .15s;
+  }
+  .multi-confirm-btn:disabled{opacity:.35;cursor:default;}
+
+  /* photo request */
+  .photo-upload-area{
+    margin: 4px 0 0 34px;
+    border:1.5px dashed var(--phb);border-radius:10px;padding:14px 16px;
+    background:var(--phg);display:flex;align-items:center;gap:12px;cursor:pointer;
+    font-size:12.5px;color:var(--pht);transition:background .12s;
+    max-width:82%;
+  }
+  .photo-upload-area:hover{background:#ece5ff;}
+  .photo-icon{font-size:20px;}
+  .photo-skip{color:var(--muted);font-size:11.5px;margin-top:6px;margin-left:34px;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+
+  /* outcome bubble */
+  .outcome-bubble{max-width:88%;animation:fadeUp .2s ease;}
+  .outcome-bubble .msg-bot-bubble{
+    border-width:1.5px;
+    background:var(--rfg);border-color:var(--rfb);
+  }
+  .outcome-bubble.exception .msg-bot-bubble{background:var(--exg);border-color:var(--exb);}
+  .outcome-bubble.escalate .msg-bot-bubble{background:var(--esg);border-color:var(--esb);}
+  .outcome-bubble.info .msg-bot-bubble{background:#eef0fb;border-color:#b0bae8;}
+  .ob-tag{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px;}
+  .outcome-bubble .ob-tag{color:var(--rft);}
+  .outcome-bubble.exception .ob-tag{color:var(--ext);}
+  .outcome-bubble.escalate .ob-tag{color:var(--est);}
+  .outcome-bubble.info .ob-tag{color:#2a3a90;}
+  .ob-title{font-size:13.5px;font-weight:600;line-height:1.3;}
+  .outcome-bubble .ob-title{color:var(--rft);}
+  .outcome-bubble.exception .ob-title{color:var(--ext);}
+  .outcome-bubble.escalate .ob-title{color:var(--est);}
+  .outcome-bubble.info .ob-title{color:#2a3a90;}
+  .ob-sub{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.5;}
+  .ob-action{margin-top:8px;font-size:12px;font-style:italic;line-height:1.5;padding:8px 10px;border-radius:6px;}
+  .outcome-bubble .ob-action{background:rgba(29,102,72,.1);color:var(--rft);}
+  .outcome-bubble.exception .ob-action{background:rgba(122,92,16,.1);color:var(--ext);}
+  .outcome-bubble.escalate .ob-action{background:rgba(139,36,36,.1);color:var(--est);}
+  .outcome-bubble.info .ob-action{background:rgba(42,58,144,.1);color:#2a3a90;}
+
+  .typing{display:flex;align-items:flex-end;gap:8px;}
+  .typing-dots{display:flex;gap:4px;padding:12px 14px;background:#fff;border:1px solid var(--border);border-radius:16px 16px 16px 4px;}
+  .typing-dots span{width:7px;height:7px;border-radius:50%;background:#c0bdb8;animation:bounce .9s infinite;}
+  .typing-dots span:nth-child(2){animation-delay:.2s;}
+  .typing-dots span:nth-child(3){animation-delay:.4s;}
+  @keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}
+
+  /* chat main area needs padding */
+  #main.chat-mode{padding:0 44px;display:flex;flex-direction:column;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="h-title">Quality Complaint · Bot Decision Tree</div>
+    <div class="h-sub">Trigger: Order selected → Product Quality → Item chosen</div>
+  </div>
+  <div class="legend" id="legend">
+    <div class="leg"><div class="leg-dot" style="background:#4a9b6f"></div>Refund</div>
+    <div class="leg"><div class="leg-dot" style="background:#c9a020"></div>Exception Refund</div>
+    <div class="leg"><div class="leg-dot" style="background:#d05050"></div>No Refund / Escalate</div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sb-lbl">Categories</div>
+    <button class="cat-btn active" onclick="go('dairy',this)">🥛 Milk &amp; Dairy</button>
+    <button class="cat-btn" onclick="go('fruits',this)">🍎 Fruits</button>
+    <button class="cat-btn" onclick="go('cutfruits',this)">🍓 Cut Fruits</button>
+    <button class="cat-btn" onclick="go('vegetables',this)">🥕 Vegetables</button>
+    <button class="cat-btn" onclick="go('bread',this)">🍞 Breads &amp; Bakery</button>
+    <button class="cat-btn" onclick="go('packaged',this)">📦 Packaged Foods</button>
+    <button class="cat-btn" onclick="go('cheese',this)">🧀 Cheese</button>
+    <button class="cat-btn" onclick="go('icecream',this)">🍨 Ice Cream</button>
+    <button class="cat-btn" onclick="go('eggs',this)">🥚 Eggs</button>
+  </aside>
+
+  <div class="main-wrap">
+    <div id="main">
+      <!-- tree or chat rendered here -->
+    </div>
+
+    <!-- TOGGLE BAR -->
+    <div class="toggle-bar">
+      <span class="toggle-label">View</span>
+      <div class="toggle-modes">
+        <span class="toggle-mode-lbl active" id="lbl-tree">Decision Tree</span>
+        <span class="toggle-sep">·</span>
+        <span class="toggle-mode-lbl" id="lbl-chat">Chat Simulation</span>
+      </div>
+      <button class="toggle-track" id="mode-toggle" onclick="toggleMode()" aria-label="Switch view">
+        <div class="toggle-thumb"></div>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED DATA
+// ─────────────────────────────────────────────────────────────────────────────
+let currentCat = 'dairy';
+let viewMode   = 'tree'; // 'tree' | 'chat'
+
+// Tree state
+let treeState = { q1: [], q2: null, q3: null };
+
+// Chat state
+let chatStep = 0; // 0=greeting, 1=q1, 2=q2, 3=q3, 4=photo, 5=outcome
+let chatQ1   = [];
+let chatQ2   = null;
+let chatQ3   = null;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY DATA
+// ─────────────────────────────────────────────────────────────────────────────
+const cats = {
+  dairy: {
+    title:'🥛 Milk & Dairy', sub:'Milk · Curd · Paneer · Butter · Cream · Ghee',
+    note:'',
+    q1:{ q:'What is the issue?', multi:true, pills:[
+      {v:'sour',       l:'Sour taste'},
+      {v:'smell',      l:'Bad smell'},
+      {v:'taste_off',  l:'Taste seems off'},
+      {v:'curdling',   l:'Curdling'},
+      {v:'bloated',    l:'Bloated pack',          critical:true},
+      {v:'slimy_mold', l:'Slimy surface / Mold growth', critical:true},
+    ]},
+    q2:{ q:'When did you first notice the issue?', pills:[
+      {v:'same', l:'Same day as delivery', c:'green'},
+      {v:'next', l:'Next day',             c:'amber'},
+      {v:'later',l:'2–3 days later',       c:'amber'},
+    ]},
+    q3:{ q:'Was the product cold when delivered, and stored in the fridge immediately?', pills:[
+      {v:'cold',    l:'Yes — delivered cold & refrigerated', c:'green'},
+      {v:'warm',    l:'Delivered warm',                      c:'amber'},
+      {v:'outside', l:'Not refrigerated after delivery',     c:'amber'},
+    ]},
+    photo:'Pack front showing brand + expiry · Spoilage or texture if visible',
+  },
+  fruits: {
+    title:'🍎 Fruits', sub:'Whole, uncut fruits only',
+    note:'',
+    q1:{ q:'What is the issue?', multi:true, pills:[
+      {v:'bruised',  l:'Bruised'},
+      {v:'squished', l:'Squished'},
+      {v:'overripe', l:'Overripe'},
+      {v:'sour',     l:'Sour'},
+      {v:'unripe',   l:'Unripe'},
+      {v:'hard',     l:'Hard'},
+      {v:'insects',  l:'Worms or insects found', critical:true},
+      {v:'mold',     l:'Mold or fungal growth',  critical:true},
+    ]},
+    q2:{ q:'When did you first notice the issue?', pills:[
+      {v:'same', l:'Same day as delivery', c:'green'},
+      {v:'next', l:'Next day',             c:'amber'},
+      {v:'later',l:'2–3 days later',       c:'amber'},
+    ]},
+    q3:{ q:'Were the fruits stored in the fridge after delivery?', pills:[
+      {v:'fridge',  l:'Yes — refrigerated',  c:'green'},
+      {v:'outside', l:'No — kept outside',   c:'amber'},
+    ]},
+    photo:'Damaged fruit clearly visible · Quantity if more than one piece affected',
+  },
+  cutfruits: {
+    title:'🍓 Cut Fruits', sub:'Pre-cut, sliced, or portioned fruits',
+    note:'Cut fruits are packed for same-day consumption. Refrigerate immediately after delivery and consume the same day for peak freshness.',
+    q1:{ q:'What is the issue?', multi:true, pills:[
+      {v:'bruised',  l:'Bruised'},
+      {v:'squished', l:'Squished'},
+      {v:'overripe', l:'Overripe'},
+      {v:'sour',     l:'Sour'},
+      {v:'unripe',   l:'Unripe'},
+      {v:'hard',     l:'Hard'},
+      {v:'insects',  l:'Worms or insects found', critical:true},
+      {v:'mold',     l:'Mold or fungal growth',  critical:true},
+    ]},
+    q2:{ q:'When did you first notice the issue?', pills:[
+      {v:'same', l:'Same day as delivery', c:'green'},
+      {v:'next', l:'Next day or later',    c:'amber'},
+    ]},
+    q3:{ q:'Was the cut fruit cold when delivered, and was it refrigerated afterwards?', pills:[
+      {v:'cold_fridged',     l:'Cold on delivery + refrigerated immediately',    c:'green'},
+      {v:'cold_not_fridged', l:'Cold on delivery, but not refrigerated after',   c:'amber'},
+      {v:'no_cold',          l:'Not cold when delivered',                         c:'red'},
+    ]},
+    photo:'Fruit visible in container · Texture or discolouration if applicable',
+  },
+  vegetables: {
+    title:'🥕 Vegetables', sub:'Fresh vegetables · Leafy greens · Packed salads',
+    note:'',
+    q1:{ q:'What is the issue?', multi:true, pills:[
+      {v:'wilted',  l:'Wilted'},
+      {v:'slimy',   l:'Slimy'},
+      {v:'smelly',  l:'Smelly'},
+      {v:'rotten',  l:'Rotten'},
+      {v:'insects', l:'Infested by insects', critical:true},
+    ]},
+    q2:{ q:'When did you first notice the issue?', pills:[
+      {v:'same', l:'Same day as delivery', c:'green'},
+      {v:'next', l:'Next day',             c:'amber'},
+      {v:'later',l:'2–3 days later',       c:'amber'},
+    ]},
+    q3:{ q:'Was it stored in the fridge after delivery?', pills:[
+      {v:'fridge',  l:'Yes — refrigerated immediately', c:'green'},
+      {v:'outside', l:'No — kept outside',              c:'amber'},
+    ]},
+    photo:'Visible spoilage, wilting, or insects · Packaging if available',
+  },
+  bread: {
+    title:'🍞 Breads & Bakery', sub:'Bread · Sourdough · Croissants · Muffins · Baked goods',
+    note:'Sourdough loaves have white flour on the exterior — this is normal, not mould. Bot clarifies this upfront if the complaint is about mould on sourdough.',
+    q1:{ q:'What is the issue?', multi:false, pills:[
+      {v:'mould',  l:'Mould or fungal growth', c:'red'},
+      {v:'stale',  l:'Hard or stale',          c:'amber'},
+      {v:'broken', l:'Broken bakery item',     c:'amber'},
+      {v:'shelf',  l:'Very short shelf life',  c:'amber'},
+      {v:'taste',  l:'Taste or smell off',     c:'amber'},
+    ]},
+    q2:{ q:'When did you first notice the issue?', pills:[
+      {v:'same', l:'Same day as delivery', c:'green'},
+      {v:'next', l:'Next day',             c:'amber'},
+      {v:'later',l:'2–3 days later',       c:'amber'},
+    ]},
+    q3:{ q:'Was the pack or seal intact when you first opened it?', pills:[
+      {v:'sealed', l:'Yes — sealed properly',        c:'green'},
+      {v:'broken', l:'No — seal was already broken', c:'amber'},
+    ]},
+    photo:'Product with visible issue · Manufacturing date + expiry date (mandatory)',
+  },
+  packaged: {
+    title:'📦 Packaged Foods & Snacks', sub:'Chips · Biscuits · Cereals · Canned goods · Beverages',
+    note:'',
+    q1:{ q:'What is the issue?', multi:false, pills:[
+      {v:'expired',  l:'Item appears expired',    c:'red'},
+      {v:'puffed',   l:'Pack puffed up',          c:'red'},
+      {v:'tampered', l:'Seal tampered or opened', c:'red'},
+      {v:'insects',  l:'Insects inside the pack', c:'red'},
+      {v:'soggy',    l:'Soggy or wet',            c:'amber'},
+      {v:'stale',    l:'Stale or taste seems off',c:'amber'},
+    ]},
+    q2:{ q:'When did you first notice the issue?', pills:[
+      {v:'same', l:'Same day as delivery', c:'green'},
+      {v:'next', l:'Next day',             c:'amber'},
+      {v:'later',l:'2–3 days later',       c:'amber'},
+    ]},
+    q3:{ q:'What is the condition of the outer pack / seal?', pills:[
+      {v:'intact',  l:'Pack intact and undamaged', c:'green'},
+      {v:'damaged', l:'Pack damaged or open',      c:'red'},
+    ]},
+    photo:'Pack front + back with expiry date visible · Batch number · Inner product if opened',
+  },
+  cheese: {
+    title:'🧀 Cheese', sub:'All varieties: sliced · block · spreadable',
+    note:'',
+    q1:{ q:'What is the issue?', multi:false, pills:[
+      {v:'smell',  l:'Sour or off smell',     c:'amber'},
+      {v:'slimy',  l:'Slimy texture',         c:'red'},
+      {v:'puffed', l:'Pack puffed up',        c:'red'},
+      {v:'rotten', l:'Discoloured or rotten', c:'red'},
+      {v:'mould',  l:'Mould visible',         c:'red'},
+    ]},
+    q2:{ q:'When did you first notice the issue?', pills:[
+      {v:'same', l:'Same day as delivery', c:'green'},
+      {v:'next', l:'Within 2 days',        c:'amber'},
+      {v:'later',l:'2–3 days later',       c:'amber'},
+    ]},
+    q3:{ q:'Was it stored in the fridge right after delivery?', pills:[
+      {v:'fridge',    l:'Yes — refrigerated immediately', c:'green'},
+      {v:'room_temp', l:'No — left at room temperature',  c:'amber'},
+    ]},
+    photo:'Full pack + close-up of spoilage · Batch number · Mfg & expiry dates',
+  },
+  icecream: {
+    title:'🍨 Ice Cream', sub:'Tubs · Bars · Kulfi · Frozen desserts — no replacements',
+    note:'No replacements for ice cream due to frozen product safety. All outcomes result in a refund — questions determine whether an Ops flag is needed.',
+    q1:{ q:'What is the issue?', multi:false, pills:[
+      {v:'melted',  l:'Melted or soft on arrival',               c:'red'},
+      {v:'icecry',  l:'Ice crystals / grainy texture (refrozen)',c:'amber'},
+      {v:'leaking', l:'Pack leaking or broken seal',             c:'red'},
+      {v:'flavour', l:'Flavour or texture compromised',          c:'amber'},
+    ]},
+    q2:{ q:'Was the product frozen solid or soft / melted when you received it?', pills:[
+      {v:'frozen', l:'Frozen solid',   c:'green'},
+      {v:'melted', l:'Soft or melted', c:'red'},
+    ]},
+    q3:{ q:'Was it delivered inside an insulated or foil bag?', pills:[
+      {v:'yes', l:'Yes — insulated bag used', c:'green'},
+      {v:'no',  l:'No insulated bag',         c:'red'},
+    ]},
+    photo:'Pack front + back · Bottom of tub (to check for ice crystals / refreeze signs)',
+  },
+  eggs: {
+    title:'🥚 Eggs', sub:'Standard · Organic · Free-range',
+    note:'',
+    q1:{ q:'What is the issue?', multi:false, pills:[
+      {v:'cracked', l:'Eggs cracked or broken',         c:'red'},
+      {v:'smell',   l:'Bad or unusual smell',           c:'red'},
+      {v:'size',    l:'Eggs look smaller than expected',c:'amber'},
+    ]},
+    q2:{ q:'When did you first notice the issue?', pills:[
+      {v:'same', l:'Same day as delivery', c:'green'},
+      {v:'next', l:'Next day or later',    c:'amber'},
+    ]},
+    q3:{ q:'Are these organic or regular eggs?', pills:[
+      {v:'organic', l:'Organic', c:'blue'},
+      {v:'regular', l:'Regular', c:'neutral'},
+    ]},
+    photo:'Affected eggs clearly visible · Full tray or pack if multiple eggs affected',
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OUTCOME RESOLVER
+// ─────────────────────────────────────────────────────────────────────────────
+const O = {
+  refund:    (title,sub,action)=>({type:'refund',    tag:'✅ Refund',               title,sub,action}),
+  exception: (title,sub,action)=>({type:'exception', tag:'⚠️ Exception Refund',     title,sub,action}),
+  escalate:  (title,sub,action)=>({type:'escalate',  tag:'🚫 No Refund',            title,sub,action}),
+  info:      (title,sub,action)=>({type:'info',      tag:'ℹ️ No Refund — Educate',  title,sub,action}),
+};
+
+function resolve(cat, q1, q2, q3) {
+  const q1a = Array.isArray(q1) ? q1 : [q1];
+  if (!q1a.length || !q2 || !q3) return null;
+
+  if (cat==='dairy') {
+    const crit = q1a.some(v=>['bloated','slimy_mold'].includes(v));
+    if (q2==='same') return O.refund('Immediate refund','Same-day report — refund regardless of storage or pack condition.','"We\'ll process a full refund right away. Thanks for letting us know."');
+    if (q2==='next') {
+      if (crit) return O.refund('Immediate refund','Bloated pack or mold growth — clear product defect.','"We\'ll process a full refund right away."');
+      if (q3==='cold') return O.refund('Immediate refund','Next-day, delivered cold and refrigerated — product defect.','"We\'ll process a full refund right away."');
+      return O.exception('Approve as exception','Next-day — delivered warm or not refrigerated. Storage likely a factor.','"We\'ll arrange a refund as an exception. For best freshness, refrigerate right after delivery."');
+    }
+    if (crit) return O.refund('Immediate refund','Bloated pack or visible mold — clear product defect.','"We\'ll process a full refund right away."');
+    return O.exception('Approve as exception','2–3 day report — storage very likely a factor. Approve as one-time exception.','"We\'ll arrange a refund as an exception this time."');
+  }
+
+  if (cat==='fruits') {
+    if (q1a.includes('insects')) return O.refund('Immediate refund — critical','Insects/worms found — refund immediately, flag to Ops.','"We\'re so sorry about this. A full refund has been processed immediately."');
+    if (q1a.includes('mold')) return O.refund('Immediate refund — critical','Mold/fungal growth found — refund immediately, flag to Ops.','"We\'re so sorry about this. A full refund has been processed immediately."');
+    if (q2==='same') return O.refund('Immediate refund','Same-day complaint — refund immediately.','"We\'ll process a full refund right away."');
+    if (q3==='fridge') return O.exception('Approve as exception','Next-day or later, stored correctly — approve as exception.','"We\'ll arrange a refund as an exception this time."');
+    return O.exception('Approve as exception','Next-day or later — approve as exception, note storage tip.','"We\'ll arrange a refund as an exception. For best freshness, refrigerate fruits right after delivery."');
+  }
+
+  if (cat==='cutfruits') {
+    if (q1a.includes('insects')) return O.refund('Immediate refund — critical','Insects found — refund immediately.','"We\'re so sorry. A full refund has been processed immediately."');
+    if (q1a.includes('mold')) return O.refund('Immediate refund — critical','Mold found — refund immediately.','"We\'re so sorry. A full refund has been processed immediately."');
+    if (q3==='no_cold') return O.refund('Refund','Not delivered cold — delivery condition failure.','"We\'ll process a refund. Cut fruits must arrive cold to stay fresh."');
+    if (q2==='same') return O.refund('Immediate refund','Same-day complaint — quality issue on delivery.','"We\'ll process a full refund right away."');
+    if (q3==='cold_not_fridged') return O.exception('Approve as exception','Delivered cold but not refrigerated — cut fruits should be consumed same day.','"We\'ll arrange a refund as an exception. Cut fruits should be refrigerated right away and enjoyed the same day."');
+    return O.exception('Approve as exception','Delivered cold, refrigerated, complaint next day — approve as exception.','"We\'ll arrange a refund as an exception this time."');
+  }
+
+  if (cat==='vegetables') {
+    if (q1a.includes('insects')) return O.refund('Immediate refund — critical','Insects found — refund immediately, flag to Ops.','"We\'re so sorry. A full refund has been processed immediately."');
+    if (q2==='same') return O.refund('Immediate refund','Same-day complaint — refund regardless of storage.','"We\'ll process a full refund right away."');
+    if (q2==='next') {
+      if (q3==='fridge') return O.exception('Approve as exception','Next-day, stored in fridge — likely product issue. Approve as exception.','"We\'ll arrange a refund as an exception."');
+      return O.exception('Approve as exception','Next-day, not refrigerated — storage a factor, especially for leafy greens.','"We\'ll arrange a refund as an exception. Vegetables stay fresh longer when refrigerated right after delivery."');
+    }
+    return O.exception('Approve as exception','2–3 day complaint — approve as exception.','"We\'ll arrange a refund as an exception this time."');
+  }
+
+  if (cat==='bread') {
+    if (q2==='same') return O.refund('Immediate refund','Same-day complaint — refund regardless of seal.','"We\'ll process a full refund right away."');
+    if (q2==='next') {
+      if (q3==='sealed') return O.refund('Immediate refund','Next-day + seal intact — product defect.','"We\'ll process a full refund right away."');
+      return O.exception('Approve as exception','Next-day + seal broken — storage a factor. Approve as exception.','"We\'ll arrange a refund as an exception. Bread stays fresh when stored sealed."');
+    }
+    return O.exception('Approve as exception','2–3 day complaint — approve as exception.','"We\'ll arrange a refund as an exception this time."');
+  }
+
+  if (cat==='packaged') {
+    const crit = q1a.some(v=>['expired','insects','puffed','tampered'].includes(v));
+    if (crit) return O.refund('Immediate refund + flag to Ops','Expired / puffed / tampered / insects — clear defect. Log mfg + expiry, flag to supplier.','"We\'re sorry. A full refund has been processed and we\'ve flagged this to our team."');
+    if (q2==='same') return O.refund('Immediate refund','Same-day taste or smell issue.','"We\'ll process a full refund right away."');
+    if (q3==='intact') return O.exception('Approve as exception','Taste/smell issue, pack intact — approve as exception. Note batch number.','"We\'ll arrange a refund as an exception. We\'ve noted the batch details for our quality team."');
+    return O.exception('Approve as exception','Pack damage with later complaint — approve as exception.','"We\'ll arrange a refund as an exception this time."');
+  }
+
+  if (cat==='cheese') {
+    if (q2==='same') return O.refund('Immediate refund','Same-day complaint.','"We\'ll process a full refund right away."');
+    if (q2==='next') {
+      if (q3==='fridge') return O.refund('Immediate refund','Within 2 days + refrigerated — product defect.','"We\'ll process a full refund right away."');
+      return O.exception('Approve as exception','Not refrigerated — storage a factor.','"We\'ll arrange a refund as an exception. Cheese should be refrigerated immediately after delivery."');
+    }
+    return O.exception('Approve as exception','2–3 day complaint — approve as exception.','"We\'ll arrange a refund as an exception this time."');
+  }
+
+  if (cat==='icecream') {
+    if (q2==='melted'&&q3==='no') return O.refund('Refund + escalate to Ops urgently','Melted + no insulated bag — clear delivery failure.','"A full refund has been processed. We\'ve flagged this as a priority to our operations team."');
+    if (q2==='melted') return O.refund('Refund + flag to Ops','Melted despite insulated bag — possible delay. Flag for RCA.','"A full refund has been processed and we\'ve flagged this for review."');
+    if (q3==='no') return O.refund('Refund + flag to Ops','Arrived frozen but no insulated bag — handling failure.','"We\'ve processed your refund and flagged this to ensure proper delivery packaging going forward."');
+    return O.refund('Refund','Texture or quality issue despite correct delivery.','"We\'ve processed your refund. We want you to enjoy ice cream only at its best."');
+  }
+
+  if (cat==='eggs') {
+    if (q1a.includes('cracked')||q1a.includes('smell')) {
+      if (q2==='same') return O.refund('Immediate refund for affected quantity','Cracked or bad smell, same day.','"We\'ll process a refund for the affected eggs right away."');
+      return O.exception('Approve as exception','Cracked/bad smell, next day — approve as exception.','"We\'ll arrange a refund as an exception this time."');
+    }
+    if (q3==='organic') return O.info('No refund — explain natural variation','Organic eggs vary naturally in size. Quality unaffected.','"Organic eggs naturally vary in size — completely normal. We\'ve noted your feedback."');
+    return O.exception('One-time exception if insistent','Size preference — note feedback. Offer exception only if customer insists.','"We understand your preference. We\'ve noted your feedback. We can offer a one-time exception refund if you\'d like."');
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TREE VIEW
+// ─────────────────────────────────────────────────────────────────────────────
+function go(key, btn) {
+  document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  currentCat = key;
+  treeState = {q1:[],q2:null,q3:null};
+  chatQ1=[]; chatQ2=null; chatQ3=null; chatStep=0;
+  if (viewMode==='tree') renderTree(key);
+  else renderChat(key);
+}
+
+function toggleQ1tree(value, critical) {
+  const idx = treeState.q1.indexOf(value);
+  if (idx===-1) treeState.q1.push(value); else treeState.q1.splice(idx,1);
+  const pill = document.querySelector(`[data-grp="q1"][data-val="${value}"]`);
+  pill.className = treeState.q1.includes(value) ? (critical?'pill multi-sel critical':'pill multi-sel') : 'pill';
+  updateTreeOutcome();
+}
+
+function pickQtree(qNum, value, color, group) {
+  treeState['q'+qNum] = value;
+  if (qNum===2) { treeState.q3=null; document.querySelectorAll('[data-grp="q3"]').forEach(p=>p.className='pill'); }
+  document.querySelectorAll(`[data-grp="${group}"]`).forEach(p=>p.className='pill');
+  document.querySelector(`[data-grp="${group}"][data-val="${value}"]`).className=`pill sel-${color}`;
+  updateTreeOutcome();
+}
+
+function updateTreeOutcome() {
+  const el = document.getElementById('outcome-result');
+  if (!el) return;
+  const o = resolve(currentCat, treeState.q1, treeState.q2, treeState.q3);
+  if (!o) { el.innerHTML=`<div class="placeholder">Answer all questions above to see the outcome</div>`; return; }
+  el.innerHTML = `<div class="outcome-panel ${o.type}">
+    <div class="op-tag">${o.tag}</div>
+    <div class="op-title">${o.title}</div>
+    <div class="op-sub">${o.sub}</div>
+    ${o.action?`<div class="op-action">${o.action}</div>`:''}
+  </div>`;
+}
+
+function renderTree(key) {
+  const c = cats[key];
+  const main = document.getElementById('main');
+  main.className = '';
+  main.style.padding = '28px 44px';
+
+  let h = `<div class="cat-hdr"><h2>${c.title}</h2><p>${c.sub}</p></div><div class="flow">`;
+  if (c.note) h += `<div class="tree-note">${c.note}</div>`;
+  h += `<div class="nd entry" style="width:100%"><div class="nd-lbl">Entry — pre-filled by bot</div><div class="nd-title">Order ID · Order date · Item name confirmed</div></div>`;
+  h += `<div class="vline"></div>`;
+
+  // Q1
+  const q1pills = c.q1.pills.map(p => {
+    if (c.q1.multi) {
+      return `<button class="pill" data-grp="q1" data-val="${p.v}" onclick="toggleQ1tree('${p.v}',${!!p.critical})">${p.l}</button>`;
+    } else {
+      return `<button class="pill" data-grp="q1" data-val="${p.v}" onclick="pickQtree(1,'${p.v}','${p.c}','q1')">${p.l}</button>`;
+    }
+  }).join('');
+  h += `<div class="nd q" style="width:100%">
+    <div class="nd-lbl">Question 1${c.q1.multi?' — select all that apply':''}</div>
+    <div class="nd-title">${c.q1.q}</div>
+    ${c.q1.multi?'<div class="multi-hint">Multiple selections allowed</div>':''}
+    <div class="pills">${q1pills}</div>
+  </div><div class="vline"></div>`;
+
+  // Q2
+  const q2pills = c.q2.pills.map(p=>`<button class="pill" data-grp="q2" data-val="${p.v}" onclick="pickQtree(2,'${p.v}','${p.c}','q2')">${p.l}</button>`).join('');
+  h += `<div class="nd q" style="width:100%"><div class="nd-lbl">Question 2</div><div class="nd-title">${c.q2.q}</div><div class="pills">${q2pills}</div></div><div class="vline"></div>`;
+
+  // Q3
+  const q3pills = c.q3.pills.map(p=>`<button class="pill" data-grp="q3" data-val="${p.v}" onclick="pickQtree(3,'${p.v}','${p.c}','q3')">${p.l}</button>`).join('');
+  h += `<div class="nd q" style="width:100%"><div class="nd-lbl">Question 3</div><div class="nd-title">${c.q3.q}</div><div class="pills">${q3pills}</div></div><div class="vline"></div>`;
+
+  // Photo
+  h += `<div class="nd photo" style="width:100%">
+    <div class="nd-lbl">📷 Photo / Video Upload</div>
+    <div class="nd-title">Please share a photo or short video of the issue</div>
+    <div class="nd-sub">${c.photo}<br><span style="color:#9070c0;font-size:11px;display:block;margin-top:3px">Non-blocking — bot proceeds without photo; case flagged for agent review.</span></div>
+  </div><div class="vline"></div>`;
+
+  // Outcome
+  h += `<div class="divlbl" style="width:100%"><span>Outcome</span></div>
+  <div id="outcome-result" class="outcome-wrap"><div class="placeholder">Answer all questions above to see the outcome</div></div>`;
+
+  h += `</div>`;
+  main.innerHTML = h;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHAT VIEW
+// ─────────────────────────────────────────────────────────────────────────────
+function renderChat(key) {
+  const c = cats[key];
+  const main = document.getElementById('main');
+  main.className = 'chat-mode';
+  main.style.padding = '0 44px';
+
+  chatQ1=[]; chatQ2=null; chatQ3=null; chatStep=0;
+
+  main.innerHTML = `
+    <div class="chat-header">
+      <div class="chat-header-inner">
+        <div class="chat-avatar">🤖</div>
+        <div>
+          <div class="chat-agent-name">FirstClub Support Bot</div>
+          <div class="chat-agent-sub">${c.title} — Quality Complaint</div>
+        </div>
+        <button class="chat-restart" onclick="restartChat()">↺ Restart</button>
+      </div>
+    </div>
+    <div class="chat-messages" id="chat-msgs"></div>
+    <div id="chat-input-area"></div>`;
+
+  const msgs = document.getElementById('chat-msgs');
+
+  // Greeting
+  addBotMsg(msgs, "I'm sorry to hear about the quality issue with your order. I'll help you sort this out right away.");
+  if (c.note) {
+    setTimeout(()=>addBotMsg(msgs, `<em style="color:#6b5808">📌 ${c.note}</em>`), 400);
+  }
+  setTimeout(()=>chatAskQ1(c), c.note ? 1000 : 500);
+}
+
+function addBotMsg(container, text, cb) {
+  const div = document.createElement('div');
+  div.className = 'msg-bot';
+  div.innerHTML = `<div class="msg-bot-avatar">🤖</div><div class="msg-bot-bubble">${text}</div>`;
+  container.appendChild(div);
+  scrollChat();
+  if (cb) setTimeout(cb, 400);
+}
+
+function addUserMsg(container, text, isMulti) {
+  const div = document.createElement('div');
+  div.className = 'msg-user';
+  div.innerHTML = `<div class="msg-user-bubble${isMulti?' multi':''}">${text}</div>`;
+  container.appendChild(div);
+  scrollChat();
+}
+
+function showTyping(cb) {
+  const msgs = document.getElementById('chat-msgs');
+  const t = document.createElement('div');
+  t.className = 'typing'; t.id = 'typing-ind';
+  t.innerHTML = `<div class="msg-bot-avatar">🤖</div><div class="typing-dots"><span></span><span></span><span></span></div>`;
+  msgs.appendChild(t); scrollChat();
+  setTimeout(()=>{ const el=document.getElementById('typing-ind'); if(el)el.remove(); cb(); }, 700);
+}
+
+function scrollChat() {
+  const el = document.getElementById('chat-msgs');
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+function clearInputArea() {
+  const el = document.getElementById('chat-input-area');
+  if (el) el.innerHTML = '';
+}
+
+function chatAskQ1(c) {
+  const msgs = document.getElementById('chat-msgs');
+  showTyping(()=>{
+    addBotMsg(msgs, c.q1.q + (c.q1.multi ? '<br><span style="font-size:11px;color:#6888b0;font-style:italic">You can select multiple options</span>' : ''));
+    const area = document.getElementById('chat-input-area');
+    if (c.q1.multi) {
+      // multi select with confirm button
+      const pillsHtml = c.q1.pills.map(p=>
+        `<button class="qr-btn" data-val="${p.v}" data-critical="${!!p.critical}"
+          onclick="chatToggleQ1(this,'${p.v}',${!!p.critical})">${p.l}</button>`
+      ).join('');
+      area.innerHTML = `
+        <div class="quick-replies">${pillsHtml}</div>
+        <div class="multi-confirm"><button class="multi-confirm-btn" id="q1-confirm-btn" disabled onclick="chatConfirmQ1()">Confirm selection →</button></div>`;
+    } else {
+      const pillsHtml = c.q1.pills.map(p=>
+        `<button class="qr-btn" onclick="chatPickQ1('${p.v}','${p.l}')">${p.l}</button>`
+      ).join('');
+      area.innerHTML = `<div class="quick-replies">${pillsHtml}</div>`;
+    }
+  });
+}
+
+function chatToggleQ1(btn, value, critical) {
+  const idx = chatQ1.indexOf(value);
+  if (idx===-1) { chatQ1.push(value); btn.classList.add('selected'); if(critical)btn.classList.add('critical'); }
+  else { chatQ1.splice(idx,1); btn.classList.remove('selected','critical'); }
+  const confirmBtn = document.getElementById('q1-confirm-btn');
+  if (confirmBtn) confirmBtn.disabled = chatQ1.length===0;
+}
+
+function chatConfirmQ1() {
+  const c = cats[currentCat];
+  const labels = chatQ1.map(v=>{ const p=c.q1.pills.find(x=>x.v===v); return p?p.l:v; });
+  const msgs = document.getElementById('chat-msgs');
+  clearInputArea();
+  addUserMsg(msgs, labels.join(', '), true);
+  chatStep=1;
+  setTimeout(()=>chatAskQ2(c), 300);
+}
+
+function chatPickQ1(value, label) {
+  const c = cats[currentCat];
+  chatQ1 = [value];
+  const msgs = document.getElementById('chat-msgs');
+  clearInputArea();
+  addUserMsg(msgs, label);
+  chatStep=1;
+  setTimeout(()=>chatAskQ2(c), 300);
+}
+
+function chatAskQ2(c) {
+  const msgs = document.getElementById('chat-msgs');
+  showTyping(()=>{
+    addBotMsg(msgs, c.q2.q);
+    const area = document.getElementById('chat-input-area');
+    const pillsHtml = c.q2.pills.map(p=>
+      `<button class="qr-btn" onclick="chatPickQ2('${p.v}','${p.l}')">${p.l}</button>`
+    ).join('');
+    area.innerHTML = `<div class="quick-replies">${pillsHtml}</div>`;
+  });
+}
+
+function chatPickQ2(value, label) {
+  const c = cats[currentCat];
+  chatQ2 = value;
+  const msgs = document.getElementById('chat-msgs');
+  clearInputArea();
+  addUserMsg(msgs, label);
+  chatStep=2;
+  setTimeout(()=>chatAskQ3(c), 300);
+}
+
+function chatAskQ3(c) {
+  const msgs = document.getElementById('chat-msgs');
+  showTyping(()=>{
+    addBotMsg(msgs, c.q3.q);
+    const area = document.getElementById('chat-input-area');
+    const pillsHtml = c.q3.pills.map(p=>
+      `<button class="qr-btn" onclick="chatPickQ3('${p.v}','${p.l}')">${p.l}</button>`
+    ).join('');
+    area.innerHTML = `<div class="quick-replies">${pillsHtml}</div>`;
+  });
+}
+
+function chatPickQ3(value, label) {
+  chatQ3 = value;
+  const msgs = document.getElementById('chat-msgs');
+  clearInputArea();
+  addUserMsg(msgs, label);
+  chatStep=3;
+  setTimeout(()=>chatAskPhoto(), 300);
+}
+
+function chatAskPhoto() {
+  const c = cats[currentCat];
+  const msgs = document.getElementById('chat-msgs');
+  showTyping(()=>{
+    addBotMsg(msgs, 'Could you share a quick photo or short video of the issue? This helps us process your request faster.');
+    const area = document.getElementById('chat-input-area');
+    area.innerHTML = `
+      <div class="photo-upload-area" onclick="chatSkipPhoto()">
+        <span class="photo-icon">📷</span>
+        <div>
+          <div style="font-weight:500">Upload photo / video</div>
+          <div style="font-size:11.5px;color:#7060a0;margin-top:2px">${c.photo}</div>
+        </div>
+      </div>
+      <div class="photo-skip" onclick="chatSkipPhoto()">Skip for now →</div>`;
+  });
+}
+
+function chatSkipPhoto() {
+  const msgs = document.getElementById('chat-msgs');
+  clearInputArea();
+  addUserMsg(msgs, '📎 Photo shared');
+  setTimeout(()=>chatShowOutcome(), 400);
+}
+
+function chatShowOutcome() {
+  const msgs = document.getElementById('chat-msgs');
+  const o = resolve(currentCat, chatQ1, chatQ2, chatQ3);
+  if (!o) { showTyping(()=>addBotMsg(msgs,"I wasn't able to determine the outcome. Let me connect you with an agent.")); return; }
+  showTyping(()=>{
+    const div = document.createElement('div');
+    div.className = `msg-bot outcome-bubble ${o.type}`;
+    div.innerHTML = `<div class="msg-bot-avatar">🤖</div>
+      <div class="msg-bot-bubble">
+        <div class="ob-tag">${o.tag}</div>
+        <div class="ob-title">${o.title}</div>
+        <div class="ob-sub">${o.sub}</div>
+        ${o.action?`<div class="ob-action">${o.action}</div>`:''}
+      </div>`;
+    msgs.appendChild(div);
+    scrollChat();
+    document.getElementById('chat-input-area').innerHTML = `
+      <div style="padding:10px 0 0 34px">
+        <button class="chat-restart" onclick="restartChat()" style="font-size:12.5px;padding:7px 16px;">↺ Start over</button>
+      </div>`;
+  });
+}
+
+function restartChat() {
+  chatQ1=[]; chatQ2=null; chatQ3=null; chatStep=0;
+  renderChat(currentCat);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODE TOGGLE
+// ─────────────────────────────────────────────────────────────────────────────
+function toggleMode() {
+  viewMode = viewMode==='tree' ? 'chat' : 'tree';
+  const track = document.getElementById('mode-toggle');
+  const lblTree = document.getElementById('lbl-tree');
+  const lblChat = document.getElementById('lbl-chat');
+  const legend  = document.getElementById('legend');
+
+  if (viewMode==='chat') {
+    track.classList.add('on');
+    lblTree.classList.remove('active');
+    lblChat.classList.add('active');
+    legend.style.display = 'none';
+    treeState={q1:[],q2:null,q3:null};
+    renderChat(currentCat);
+  } else {
+    track.classList.remove('on');
+    lblChat.classList.remove('active');
+    lblTree.classList.add('active');
+    legend.style.display = '';
+    chatQ1=[]; chatQ2=null; chatQ3=null; chatStep=0;
+    renderTree(currentCat);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+renderTree('dairy');
+</script>
+</body>
+</html>
